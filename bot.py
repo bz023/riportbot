@@ -3,11 +3,14 @@ import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from reports import merch_report, weekly_report
+from datetime import datetime
 
-# Beállítások betöltése a .env fájlból
 load_dotenv()
 mail = os.getenv("SPORTAL_MAIL")
 passwd = os.getenv("SPORTAL_PASS")
+store_name = os.getenv("STORE_NAME")
+curr_week = datetime.now().isocalendar()[1]
+week = curr_week 
 
 def run_bot():
     with sync_playwright() as p:
@@ -25,16 +28,14 @@ def run_bot():
         page.fill("input[name='password']", passwd)
         page.click("button[type='submit']")
 
-        # Megvárjuk, amíg betölt a riport oldal
         page.wait_for_url("**/home")
         print("Sikeres bejelentkezés! /home megnyitva.")
-
         
-        select_report(page)
+        select_report_type(page)
         browser.close()
 
 
-def select_report(page):
+def select_report_type(page):
     print("--- Automata Riport Kitöltő ---")
     print("1. Merchandising riport feltöltése")
     print("2. Heti riport feltöltése")
@@ -44,11 +45,11 @@ def select_report(page):
 
     if valasztas == '1':
         print("Indul a Merchand riport feltöltése...")
-        merch_report(page)
+        merch_report(page, store_name, week)
 
     elif valasztas == '2':
         print("Indul a Heti riport feltöltése...")
-        weekly_report(page)
+        weekly_report(page, store_name, week)
 
     elif valasztas == 'q':
         print("Kilépés a programból.")
@@ -56,7 +57,7 @@ def select_report(page):
 
     else:
         print("Hiba: Érvénytelen választás! Kérlek 1, 2 vagy q gombot nyomj.")
-        return select_report(page)
+        return select_report_type(page)
 
 if __name__ == "__main__":
     run_bot()
