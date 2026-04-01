@@ -11,9 +11,6 @@ def merch_report(page, store_name, week):
     print(f"{store_name} üzlet kiválasztva")
 
     page.wait_for_selector("select[name='week']")
-    #page.select_option("select[name='week']", value=str(week))
-    #print(f"{week} hét kiválasztva")
-
     is_disabled = page.eval_on_selector(
         f"select[name='week'] option[value='{week}']", 
         "el => el.disabled"
@@ -27,7 +24,7 @@ def merch_report(page, store_name, week):
     print(f"Hét ({week}) sikeresen kiválasztva.")
     time.sleep(5)
 
-def weekly_report(page, store_name):
+def weekly_report(page, store_name, week):
     print("Navigálás a Heti riport oldalra...")
     page.goto("https://salesportal.salesninja.hu/weekly-report-v3")
     
