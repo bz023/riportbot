@@ -2,11 +2,12 @@ import pandas as pd
 import os
 
 def get_excel_data(file_path):
-    # 1. Ez az Árucsoport kódokat fordítja le a weboldal által használt ID-kra
+    # Ez az Árucsoport kódokat fordítja le a weboldal által használt ID-kra
     excel_to_web_id = {
         716: 10,  # Árucsoport 716 -> Web 10
         717: 9,   # Árucsoport 717 -> Web 9
         711: 5,
+        722: 12,
         # ... TODO ...
     }
 
