@@ -17,9 +17,8 @@ week = datetime.now().isocalendar()[1]
 def run_bot():
     downloads_dir = "/home/bz023/Downloads/"
     
-    # 1. Új fájlok keresése (amik még nincsenek .kesz-re nevezve)
     minden_xls = glob.glob(os.path.join(downloads_dir, "tblResult*.xls"))
-    fajlok = [f for f in minden_xls if not f.endswith('.kesz')]
+    fajlok = [f for f in minden_xls]
 
     if not fajlok:
         print("Nincs új feldolgozandó tblResult fájl.")
@@ -71,9 +70,6 @@ def run_bot():
             # Feltöltés indítása (az összesített adatokkal)
             merch_report(page, store_name, week, final_data)
 
-            # Sikeres menet után fájlok "archiválása"
-            for f in feldolgozott_fajlok:
-                os.rename(f, f + ".kesz")
             print("\n>>> KÉSZ! Minden fájl feldolgozva és feltöltve.")
 
         except Exception as e:

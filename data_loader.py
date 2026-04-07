@@ -3,7 +3,40 @@ import os
 import re
 
 def get_excel_data(file_path):
-    excel_to_web_id = {711: 5, 716: 10, 717: 9, 718: 31, 722: 12}
+    excel_to_web_id = {
+        710:1,  # Tabletop 85cm
+        740:2,  # Egyajtós álló hűtő
+        742:3,  # Double door felülfagyasztó
+        710:4,  # Nem nofrost
+        711:5,  # Nofrost
+        713:6,  # Fagyasztó 85cm-ig    
+        745:7,  # Fagyasztó 85cm felett
+        714:8,   # Fagyláda
+        717:9,    # Elöltöltős 60 
+        716:10,   # Elöltöltős 45
+        715:11,   # Felültöltős
+        722:12,   # Hőszivattyús
+        #1:13,  #Kondenzációs   
+        #1:14, #14 gáztűzhely, 15 kombi, 16 elektromos
+        #1:15,
+        #1:16,
+        724:17,   #45cm mosogató
+        723:18,   #60cm mosogató
+        #1:19,   #Mikró
+        #1:20,   #Beép sütő
+        781:21,   # Indukciós lap
+        771:22,   # Kerámialap
+        #1:23,   # Gáz főzőlap
+        793:24,   # Beép mikró
+        823:25,   # Páraelszívó
+        737:26,   # Beép 45cm mosogató
+        794:27,   # Beép 60cm mosogató
+        778:28,   # Beép hűtő
+        #1:29,   # Pároló
+        #1:30,   # Kávéfőző
+        718:31, # Mosószárító
+        #1:32    # Beép mosógép
+        }
     tamogatott_markak = ["HAIER", "CANDY"]
     
     if not os.path.exists(file_path):
