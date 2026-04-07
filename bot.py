@@ -12,7 +12,7 @@ load_dotenv()
 mail = os.getenv("SPORTAL_MAIL")
 passwd = os.getenv("SPORTAL_PASS")
 store_name = os.getenv("STORE_NAME")
-week = datetime.now().isocalendar()[1] 
+week = datetime.now().isocalendar()[1]
 
 def run_bot():
     downloads_dir = "/home/bz023/Downloads/"
@@ -24,15 +24,12 @@ def run_bot():
         print("Nincs új feldolgozandó tblResult fájl.")
         return
 
-    # 2. Adatok összesítése az összes talált fájlból
+    # 2. Adatok összesítése
     all_data_list = []
-    feldolgozott_fajlok = []
-
     for f_path in fajlok:
         df = get_excel_data(f_path)
         if df is not None and not df.empty:
             all_data_list.append(df)
-            feldolgozott_fajlok.append(f_path)
 
     if not all_data_list:
         print("Nem sikerült érvényes adatot kinyerni a fájlokból.")
@@ -40,8 +37,7 @@ def run_bot():
 
     final_data = pd.concat(all_data_list, ignore_index=True)
 
-    # 3. DUPLIKÁCIÓ SZŰRÉSE (5-ös kód (kiállított) előnyben)
-    # Raktar_hely szerint rendezünk (5 elöl, 6 hátul), majd kidobjuk a modellnév duplikációkat
+    # 3. DUPLIKÁCIÓ SZŰRÉSE
     final_data = final_data.sort_values(by=['modellnev', 'raktar_hely'], ascending=[True, True])
     final_data = final_data.drop_duplicates(subset=['modellnev'], keep='first')
 
@@ -52,9 +48,15 @@ def run_bot():
     valasztas = input("Választás (1 vagy q): ").strip().lower()
     if valasztas != '1': return
 
-    # 5. Playwright vezérlés
+    # 5. Playwright vezérlés - FULLSCREEN MÓDOSÍTÁSOK
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        # Hozzáadjuk a --start-maximized kapcsolót
+        browser = p.chromium.launch(
+            headless=False, 
+            args=["--start-maximized"]
+        )
+        
+        # Kifeszítjük a weboldalt az ablak teljes méretére
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
 
@@ -64,10 +66,12 @@ def run_bot():
             page.fill("input[name='email']", mail)
             page.fill("input[name='password']", passwd)
             page.click("button[type='submit']")
-            page.wait_for_url("**/home")
+            
+            # Várunk, amíg be nem lép (vagy a főoldalra, vagy a dashboardra)
+            page.wait_for_load_state("networkidle")
             print("Sikeres login!")
 
-            # Feltöltés indítása (az összesített adatokkal)
+            # Feltöltés indítása
             merch_report(page, store_name, week, final_data)
 
             print("\n>>> KÉSZ! Minden fájl feldolgozva és feltöltve.")
