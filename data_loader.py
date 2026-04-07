@@ -1,65 +1,70 @@
 import pandas as pd
 import os
+import re
 
 def get_excel_data(file_path):
-    # Ez az Árucsoport kódokat fordítja le a weboldal által használt ID-kra
-    excel_to_web_id = {
-        716: 10,  # Árucsoport 716 -> Web 10
-        717: 9,   # Árucsoport 717 -> Web 9
-        711: 5,
-        722: 12,
-        # ... TODO ...
-    }
-
-    web_id_to_label = {
-        1: "Table top (0-85 cm-ig)", 2: "Cabinet (egyajtós)", 3: "Double Door (felülfagyasztós, 2 ajtós)",
-        4: "Alulfagyasztós (nem No-Frost)", 5: "Alulfagyasztós (No-Frost)", 6: "Freezer Upright below 85 cm (85 cm-ig)",
-        7: "Freezer Upright above 85 cm (85 cm felett)", 8: "Freezer Horizontal (fagyasztóláda)",
-        9: "Frontloader 60 cm (elöltöltős)", 10: "Frontloader 45 cm (keskeny elöltöltős)",
-        11: "Toploader (felültöltős)", 12: "Heatpump Dryer (hőszivattyús)", 13: "Condenser (kondenzációs)",
-        14: "Gas hobs (tűzhely - gáz)", 15: "Combi hobs/ovens (tűzhely - gáz/villany)", 16: "Electric hobs (elektromos)",
-        17: "Dishwasher 45 cm", 18: "Dishwasher 60 cm", 19: "Microwaves (mikrohullámú sütők)", 20: "Ovens (sütő)",
-        21: "Induction hobs (indukciós főzőlap)", 22: "Normal hobs (kerámia főzőlap)", 23: "Gas hobs (gáz főzőlap)",
-        24: "Microwaves (mikrohullámú sütő)", 25: "Hoods (páraelszívó)", 26: "Dishwashers 45 cm (mosogatógép 45 cm)",
-        27: "Dishwashers 60 cm (mosogatógép 60 cm)", 28: "Refrigerators (hűtőszekrény)", 29: "Steamers (pároló)",
-        30: "Coffee makers (kávéfőző)", 31: "Combination washers (mosó-szárító)", 32: "Washers (mosógép)"
-    }
-
+    excel_to_web_id = {711: 5, 716: 10, 717: 9, 718: 31, 722: 12}
+    tamogatott_markak = ["HAIER", "CANDY"]
+    
     if not os.path.exists(file_path):
-        print(f"HIBA: A fájl nem található: {file_path}")
         return None
 
     try:
-        df = pd.read_excel(file_path, header=None)
-        df.columns = ['modellnev', 'marka', 'kategoria_kod', 'raktar_hely', 'ar']
-
-        # Árucsoport => selector ID
-        df['web_id'] = df['kategoria_kod'].map(excel_to_web_id)
-
-        # Selector ID => Selector label
-        df['kategoria_nev'] = df['web_id'].map(web_id_to_label)
+        with open(file_path, 'rb') as f:
+            raw_content = f.read()
         
-        # Ha valami hiányzik a szótárból, jelezzük
-        if df['kategoria_nev'].isnull().any():
-            missing = df[df['kategoria_nev'].isnull()]['kategoria_kod'].unique()
-            print(f"FIGYELEM: Nincs fordítás ezekhez az Árucsoport kódokhoz: {missing}")
+        text_content = raw_content.decode('latin-1', errors='ignore')
+        lines = text_content.splitlines()
 
-        df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+        extracted_data = []
+        for line in lines:
+            # Megnézzük, benne van-e valamelyik márka
+            aktualis_marka = next((m for m in tamogatott_markak if m in line.upper()), None)
+            if not aktualis_marka:
+                continue
 
-        print(f"Sikeres beolvasás: {len(df)} termék betöltve.")
-        return df
+            # 1. Kategória kód (sor eleje)
+            cat_match = re.search(r'(\d{3})', line[:10])
+            if not cat_match: continue
+            cat_kod = int(cat_match.group(1))
 
+            # 2. MODELLNÉV JAVÍTÁSA: 
+            # Keressük meg a márka pozícióját, és mindent utána a következő tabig (\t) modellnek veszünk
+            try:
+                # A sor elejétől a márkáig tartó részt levágjuk
+                start_index = line.upper().find(aktualis_marka) + len(aktualis_marka)
+                maradek_sor = line[start_index:].strip()
+                
+                # A maradékból csak az első tabulátorig tartó részt vesszük ki
+                # Így a "27SB6-S" akkor is megmarad, ha van benne szóköz
+                modellnev = maradek_sor.split('\t')[0].strip()
+            except:
+                modellnev = "ISMERETLEN"
+
+            # 3. ÁR FIXÁLÁSA (marad a jól bevált tabos módszer)
+            parts = line.strip().split('\t')
+            ar = 0
+            for p in reversed(parts):
+                clean_p = re.sub(r'[^\d]', '', p.split(',')[0])
+                if clean_p.isdigit():
+                    val = int(clean_p)
+                    # Mikrók miatt 5000-re levéve a limit
+                    if 5000 < val < 2000000:
+                        ar = val
+                        break
+
+            if cat_kod in excel_to_web_id and ar > 0:
+                extracted_data.append({
+                    'kategoria_kod': cat_kod,
+                    'marka': aktualis_marka,
+                    'modellnev': modellnev,
+                    'ar': ar,
+                    'raktar_hely': 6 if "\t6\t" in line else 5,
+                    'web_id': excel_to_web_id[cat_kod]
+                })
+
+        return pd.DataFrame(extracted_data)
+            
     except Exception as e:
         print(f"Hiba: {e}")
         return None
-    
-    # --- TESZT FUNKCIÓ (MAIN) ---
-if __name__ == "__main__":
-    print(">>> Tesztelés indítása...")
-    
-    filename = "termekek.xlsx"
-    data = get_excel_data(filename)
-
-    if data is not None:
-        print(f"\n>>> SIKERES BEOLVASÁS!")
-        print(data.head())

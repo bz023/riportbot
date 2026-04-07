@@ -103,31 +103,25 @@ def merch_report(page, store_name, week, data):
     
     print("\nAdatkitöltés kész. Ellenőrzés indítása a 'Riport tartalom tesztelése' gombbal...")
     
-    # 1. Megnyomjuk a tesztelés gombot
     page.click("button[name='test']")
     
-    # 2. Várunk egy kicsit (pl. 2-3 másodpercet), hogy legyen ideje megjelenni a hibaüzenetnek
     time.sleep(2)
     
-    # 3. Megnézzük, létezik-e a piros hibaüzenet az oldalon
-    # A .is_visible() nem dob hibát, ha nincs ott az elem, csak True/False-t ad vissza
     hiba_lathato = page.is_visible(".alert.alert-danger")
 
     if hiba_lathato:
-        # Ha látjuk a piros boxot, kiolvassuk a szöveget
         alert_text = page.inner_text(".alert.alert-danger").strip()
         print(f"\nHIBA: A portál hibát jelzett!")
         print(f"Üzenet: {alert_text}")
     else:
-        # Ha nem jelent meg piros üzenet a várakozási idő alatt
         print("\nSIKER: Nem érkezett hibaüzenet, a tartalom valószínűleg rendben van.")
 
 def weekly_report(page, store_name, week):
-    print("Navigálás a Heti riport oldalra...")
-    page.goto("https://salesportal.salesninja.hu/weekly-report-v3")
+    print("NOT IMPLEMENTED")
+    #page.goto("https://salesportal.salesninja.hu/weekly-report-v3")
     
     #TODO...
 
 
-    print("Heti riport oldal kész.")
-    time.sleep(5)
+    #print("Heti riport oldal kész.")
+    time.sleep(1)
