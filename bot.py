@@ -1,64 +1,44 @@
 import os
 import glob
 import pandas as pd
+import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from reports import merch_report
 from datetime import datetime
 from data_loader import get_excel_data
 
-# Beállítások betöltése
 load_dotenv()
 mail = os.getenv("SPORTAL_MAIL")
 passwd = os.getenv("SPORTAL_PASS")
 store_name = os.getenv("STORE_NAME")
-week = datetime.now().isocalendar()[1]
+week = datetime.now().isocalendar()[1] 
 
 def run_bot():
     downloads_dir = "/home/bz023/Downloads/"
-    
     minden_xls = glob.glob(os.path.join(downloads_dir, "tblResult*.xls"))
-    fajlok = [f for f in minden_xls]
 
-    if not fajlok:
-        print("Nincs új feldolgozandó tblResult fájl.")
+    if not minden_xls:
+        print("Nincs új feldolgozandó fájl.")
         return
 
-    # 2. Adatok összesítése
-    all_data_list = []
-    for f_path in fajlok:
-        df = get_excel_data(f_path)
-        if df is not None and not df.empty:
-            all_data_list.append(df)
-
-    if not all_data_list:
-        print("Nem sikerült érvényes adatot kinyerni a fájlokból.")
-        return
-
+    all_data_list = [get_excel_data(f) for f in minden_xls if get_excel_data(f) is not None]
+    if not all_data_list: return
+    
     final_data = pd.concat(all_data_list, ignore_index=True)
+    final_data = final_data.sort_values(by=['modellnev', 'raktar_hely']).drop_duplicates(subset=['modellnev'])
 
-    # 3. DUPLIKÁCIÓ SZŰRÉSE
-    final_data = final_data.sort_values(by=['modellnev', 'raktar_hely'], ascending=[True, True])
-    final_data = final_data.drop_duplicates(subset=['modellnev'], keep='first')
+    print(f"Összesítve {len(final_data)} termék feltöltése indul.")
+    if input("Indítás? (1/q): ") != '1': return
 
-    print(f"Összesítve {len(final_data)} egyedi termék feltöltése indul.")
-
-    # 4. Feltöltési folyamat kiválasztása
-    print("\n1. Merchandising riport")
-    valasztas = input("Választás (1 vagy q): ").strip().lower()
-    if valasztas != '1': return
-
-    # 5. Playwright vezérlés - FULLSCREEN MÓDOSÍTÁSOK
     with sync_playwright() as p:
-        # Hozzáadjuk a --start-maximized kapcsolót
-        browser = p.chromium.launch(
-            headless=False, 
-            args=["--start-maximized"]
-        )
-        
-        # Kifeszítjük a weboldalt az ablak teljes méretére
+        browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
+
+        # --- ALERT KEZELÉS: Nem nyúlunk hozzá, hagyjuk a felhasználónak ---
+        # Ha felugrik az ablak, csak kiírjuk, de nem fogadjuk el/utasítjuk el automatikusan
+        page.on("dialog", lambda dialog: print(f"\n[ALERT ÉSZLELVE]: {dialog.message}\nKérlek, nyomj OK-t a böngészőben!"))
 
         try:
             # Login
@@ -66,21 +46,24 @@ def run_bot():
             page.fill("input[name='email']", mail)
             page.fill("input[name='password']", passwd)
             page.click("button[type='submit']")
-            
-            # Várunk, amíg be nem lép (vagy a főoldalra, vagy a dashboardra)
-            page.wait_for_load_state("networkidle")
-            print("Sikeres login!")
+            page.wait_for_load_state("domcontentloaded")
 
-            # Feltöltés indítása
+            # Kitöltés hívása
             merch_report(page, store_name, week, final_data)
 
-            print("\n>>> KÉSZ! Minden fájl feldolgozva és feltöltve.")
+            print("\n" + "="*60)
+            print("AUTOMATA KÉSZ. MOST TE JÖSSZ!")
+            print("1. Kattints a beküldés/mentés gombra.")
+            print("2. A felugró megerősítő ablakot te fogod látni, nyomj OK-t.")
+            print("3. Ha végeztél, zárd be a böngészőt.")
+            print("="*60)
+
+            # Ez tartja nyitva a kapcsolatot a kattintásokhoz
+            page.wait_for_event("close", timeout=0)
 
         except Exception as e:
-            print(f"Hiba a feltöltés során: {e}")
-        
+            print(f"Hiba: {e}")
         finally:
-            input("\nNyomj Enter-t a böngésző bezárásához...")
             browser.close()
 
 if __name__ == "__main__":

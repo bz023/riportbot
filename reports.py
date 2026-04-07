@@ -11,18 +11,30 @@ def fill_section(page, group, section_id, section_label):
         prefix = f"{section_id}[{web_idx}]"
 
         if i > 0:
-            # Plusz gomb
             page.locator(f"#{section_id} #plus").click()
-            # Itt egy nagyon rövid sleep kell, mert a DOM-ban lehet, hogy már ott a mező, 
-            # de a JS még nem kötötte rá az eseménykezelőket.
-            time.sleep(0.2) 
+            time.sleep(0.3) 
 
         try:
-            page.fill(f"input[name='{prefix}[product_name]']", str(row['modellnev']))
+            # MODELLNÉV: Kattintás, törlés, gépelés + események
+            name_sel = f"input[name='{prefix}[product_name]']"
+            page.locator(name_sel).click()
+            page.locator(name_sel).fill("")
+            page.locator(name_sel).press_sequentially(str(row['modellnev']), delay=15)
+            page.locator(name_sel).dispatch_event("change")
+            page.locator(name_sel).dispatch_event("blur")
+
+            # MÁRKA ÉS KATEGÓRIA
             page.select_option(f"select[name='{prefix}[brand_id]']", label=str(row['marka']).upper())
             page.select_option(f"select[name='{prefix}[subcategory_id]']", value=str(int(row['web_id'])))
-            page.fill(f"input[name='{prefix}[product_price]']", str(row['ar']))
+            
+            # ÁR: Kattintás, gépelés + események
+            price_sel = f"input[name='{prefix}[product_price]']"
+            page.locator(price_sel).click()
+            page.locator(price_sel).fill("")
+            page.locator(price_sel).press_sequentially(str(row['ar']), delay=15)
+            page.locator(price_sel).dispatch_event("change")
 
+            # Raktárhely logika
             if int(row['raktar_hely']) == 5:
                 page.check(f"input[name='{prefix}[product_demo]'][value='Y']")
                 page.check(f"input[name='{prefix}[product_clean]'][value='5']")
@@ -35,36 +47,15 @@ def fill_section(page, group, section_id, section_label):
             print(f"      Hiba a(z) {row['modellnev']} sornál: {e}")
 
 def merch_report(page, store_name, week, data):
-    print(f"Navigálás: https://salesportal.salesninja.hu/merchand-report")
+    print(f"Navigálás a riport oldalra...")
     page.goto("https://salesportal.salesninja.hu/merchand-report")    
 
-    # Üzlet kiválasztása
     page.wait_for_selector("select[name='store']")
     page.select_option("select[name='store']", label=store_name)
-    
-    # KIS SZÜNET: Az üzlet választása után az oldal gyakran újratölti a hetek listáját AJAX-szal
     time.sleep(1) 
 
-    # Hét ellenőrzése
-    page.wait_for_selector(f"select[name='week']")
-    
-    # Megnézzük, létezik-e az opció és tiltott-e
-    option_selector = f"select[name='week'] option[value='{week}']"
-    if page.locator(option_selector).count() == 0:
-        print(f"HIBA: A(z) {week}. hét nem található a listában!")
-        return
-
-    is_disabled = page.eval_on_selector(option_selector, "el => el.disabled")
-    if is_disabled:
-        print(f"HIBA: A(z) {week}. hét le van tiltva!")
-        return
-    
-    # Hét kiválasztása
     page.select_option("select[name='week']", value=str(week))
-    
-    # Itt kell egy stabil várás, mert a hétváltás után az egész táblázat újragenerálódik
-    print(f"Hét ({week}) kiválasztva, várakozás a táblázatokra...")
-    time.sleep(1.5)
+    time.sleep(1) 
 
     # Adatok szűrése
     refrigerators_data = data[data['web_id'].between(1, 8)]
@@ -78,12 +69,6 @@ def merch_report(page, store_name, week, data):
     if not microwaves_data.empty: fill_section(page, microwaves_data, "sutok", "Mikrohullámú sütők")
     if not built_in_data.empty: fill_section(page, built_in_data, "beepitheto", "Beépíthető termékek")
 
-    print("\nEllenőrzés...")
-    page.click("button[name='test']")
-    
-    # A végén hagyjunk egy kis időt a szervernek
-    time.sleep(1.5)
-    if page.is_visible(".alert.alert-danger"):
-        print(f"HIBA: {page.inner_text('.alert.alert-danger').strip()}")
-    else:
-        print("SIKER: Nincs hibaüzenet.")
+    # Egy utolsó kattintás a semmibe, hogy minden mező validálódjon
+    page.mouse.click(0, 0)
+    print("\nAdatkitöltés kész!")
