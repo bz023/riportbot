@@ -4,3 +4,4 @@ __pycache__/
 *.xlsx
 config.enc
 secret.key
+data/

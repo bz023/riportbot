@@ -1,100 +1,30 @@
 import os
-import json
-import time
 import threading
 import pandas as pd
 import customtkinter as ctk
-from tkinter import filedialog, ttk  # TTK kell a táblázathoz (Treeview)
+from tkinter import filedialog, ttk
 from datetime import datetime
-from playwright.sync_api import sync_playwright
-from cryptography.fernet import Fernet
 from PIL import Image
 from CTkMessagebox import CTkMessagebox
+
+# SAJÁT MODULOK
+import auth
+from scraper import fetch_stores_and_weeks
 from reports import merch_report
 from data_loader import get_excel_data
+from gui_styles import get_asset_path, apply_treeview_style
 
-# GUI Megjelenés és téma beállítása
-ctk.set_appearance_mode("Dark")  # Fix sötét mód a Haier logóhoz
-ctk.set_default_color_theme("blue")
-
-CONFIG_FILE = "config.enc"
-KEY_FILE = "secret.key"
-
-# --- 1. TITKOSÍTÁSI LOGIKA ---
-def get_or_create_key():
-    if not os.path.exists(KEY_FILE):
-        key = Fernet.generate_key()
-        with open(KEY_FILE, "wb") as kf:
-            kf.write(key)
-        return key
-    with open(KEY_FILE, "rb") as kf:
-        return kf.read()
-
-def save_credentials(email, password):
-    key = get_or_create_key()
-    fernet = Fernet(key)
-    data = {"email": email, "password": password}
-    encrypted_data = fernet.encrypt(json.dumps(data).encode())
-    with open(CONFIG_FILE, "wb") as cf:
-        cf.write(encrypted_data)
-
-def load_credentials():
-    if not os.path.exists(CONFIG_FILE) or not os.path.exists(KEY_FILE):
-        return None
-    try:
-        key = get_or_create_key()
-        fernet = Fernet(key)
-        with open(CONFIG_FILE, "rb") as cf:
-            encrypted_data = cf.read()
-        decrypted_data = fernet.decrypt(encrypted_data).decode()
-        return json.loads(decrypted_data)
-    except Exception:
-        return None
-
-# --- 2. HÁTTÉR ADATLEKÉRÉS ---
-def fetch_stores_and_weeks(email, password):
-    stores = []
-    weeks = []
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
-            page = context.new_page()
-            
-            page.goto("https://salesportal.salesninja.hu/login")
-            page.fill("input[name='email']", email)
-            page.fill("input[name='password']", password)
-            page.click("button[type='submit']")
-            page.wait_for_load_state("domcontentloaded")
-            
-            page.goto("https://salesportal.salesninja.hu/merchand-report")
-            page.wait_for_selector("select[name='store']")
-            
-            store_options = page.locator("select[name='store'] option").all()
-            stores = [opt.inner_text().strip() for opt in store_options if opt.get_attribute("value")]
-            
-            week_options = page.locator("select[name='week'] option").all()
-            weeks = [opt.get_attribute("value") for opt in week_options if opt.get_attribute("value")]
-            
-            browser.close()
-    except Exception as e:
-        print(f"Hiba a háttéradatok lekérése közben: {e}")
-    return stores, weeks
-
-# --- 3. GRAFIKUS FELÜLET (GUI) ---
 class SalesBotGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("SalesPortal Merch Bot v2.0")
-        self.geometry("800x850")  # Beállítva a kért új ablakméret
+        self.geometry("800x850")
         self.resizable(False, False)
-        
-        # Golyóálló kilépés az X gombra
         self.protocol("WM_DELETE_WINDOW", lambda: os._exit(0))
         
         self.selected_files = []
-        self.final_dataframe = None  # Itt tároljuk a beolvasott tiszta adatokat
-        self.credentials = load_credentials()
+        self.final_dataframe = None
+        self.credentials = auth.load_credentials()
 
         if not self.credentials:
             self.build_login_ui()
@@ -103,306 +33,252 @@ class SalesBotGUI(ctk.CTk):
 
     def build_login_ui(self):
         self.clear_ui()
+        logo_path = get_asset_path(os.path.join("assets", "haier.png"))
+        if os.path.exists(logo_path):
+            raw_img = Image.open(logo_path)
+            logo_img = ctk.CTkImage(light_image=raw_img, dark_image=raw_img, size=(260, 80))
+            ctk.CTkLabel(self, text="", image=logo_img).pack(pady=(60, 10))
         
-        title = ctk.CTkLabel(self, text="Első indítás: Bejelentkezés", font=ctk.CTkFont(family="Arial", size=18, weight="bold"))
-        title.pack(pady=20)
-
-        self.email_entry = ctk.CTkEntry(self, placeholder_text="Email cím", width=300)
-        self.email_entry.pack(pady=10)
-
-        self.pass_entry = ctk.CTkEntry(self, placeholder_text="Jelszó", show="*", width=300)
-        self.pass_entry.pack(pady=10)
-
-        self.login_btn = ctk.CTkButton(self, text="Mentés és kapcsolódás", fg_color="#005baa", hover_color="#00437d", command=self.handle_login)
-        self.login_btn.pack(pady=20)
+        ctk.CTkLabel(self, text="SalesPortal Merch Bot | Bejelentkezés", font=ctk.CTkFont(family="Arial", size=15, weight="bold")).pack(pady=(0, 20))
         
-        self.status_label = ctk.CTkLabel(self, text="", text_color="red")
-        self.status_label.pack(pady=5)
+        email_label = ctk.CTkLabel(self, text="E-mail cím", font=ctk.CTkFont(family="Arial", size=11, weight="bold"), text_color="gray", anchor="w")
+        email_label.pack(padx=240, fill="x", pady=(5, 2))
+        
+        self.email_entry = ctk.CTkEntry(self, placeholder_text="E-mail", width=320, height=35)
+        self.email_entry.pack(pady=(0, 10))
+        
+        pass_label = ctk.CTkLabel(self, text="SalesPortal Jelszó", font=ctk.CTkFont(family="Arial", size=11, weight="bold"), text_color="gray", anchor="w")
+        pass_label.pack(padx=240, fill="x", pady=(5, 2))
+        
+        self.pass_entry = ctk.CTkEntry(self, placeholder_text="Jelszó", show="*", width=320, height=35)
+        self.pass_entry.pack(pady=(0, 10))
+        
+        self.status_label = ctk.CTkLabel(self, text="", text_color="red", font=ctk.CTkFont(size=12))
+        self.status_label.pack(pady=10)
+        
+        self.login_btn = ctk.CTkButton(self, text="Bejelentkezés és mentés", width=320, height=40, fg_color="#005baa", hover_color="#00437d", font=ctk.CTkFont(weight="bold"), command=self.handle_login)
+        self.login_btn.pack(pady=10)
+        self.bind("<Return>", self.handle_login)
 
-    def handle_login(self):
+        copyright_text = "© 2026 Developed by Zoltan Biro | Tailored for Haier Promoting Team"
+        ctk.CTkLabel(self, text=copyright_text, font=ctk.CTkFont(family="Arial", size=9), text_color="#444444").pack(side="bottom", pady=15)
+
+    def handle_login(self, event=None):
         email = self.email_entry.get().strip()
         password = self.pass_entry.get().strip()
         
         if not email or not password:
-            self.status_label.configure(text="Minden mezőt ki kell tölteni!")
+            self.status_label.configure(text="Minden mezőt ki kell tölteni!", text_color="red")
             return
-        
-        self.status_label.configure(text="Ellenőrzés és adatok lekérése...", text_color="orange")
-        self.update()
-        
-        stores, weeks = fetch_stores_and_weeks(email, password)
-        
-        if stores:
-            save_credentials(email, password)
-            self.credentials = {"email": email, "password": password}
-            self.build_main_ui(stores, weeks)
-        else:
-            self.status_label.configure(text="Sikertelen belépés! Ellenőrizd az adatokat.", text_color="red")
+            
+        self.login_btn.configure(state="disabled", text="Kapcsolódás...")
+        self.status_label.configure(text="Adatok ellenőrzése a SalesPortal-on, kérlek várj...", text_color="orange")
+        self.update_idletasks()
+        self.unbind("<Return>")
+        threading.Thread(target=self._login_worker, args=(email, password), daemon=True).start()
+
+    def _login_worker(self, email, password):
+        try:
+            stores, weeks = fetch_stores_and_weeks(email, password)
+            if stores:
+                auth.save_credentials(email, password)
+                self.credentials = {"email": email, "password": password}
+                self.after(0, lambda: self.build_main_ui(stores, weeks))
+            else:
+                self.after(0, lambda: self._login_failed("Sikertelen belépés! Hibás email vagy jelszó."))
+        except Exception:
+            self.after(0, lambda: self._login_failed("Hálózati hiba! A SalesPortal nem érhető el."))
+
+    def _login_failed(self, error_message):
+        self.login_btn.configure(state="normal", text="Mentés és kapcsolódás")
+        self.status_label.configure(text=error_message, text_color="red")
+        self.bind("<Return>", self.handle_login)
 
     def preload_data(self):
         self.clear_ui()
-        loading_label = ctk.CTkLabel(self, text="Kapcsolódás a SalesPortal-hoz...\n\nÁruházak és hetek letöltése folyamatban.", font=ctk.CTkFont(family="Arial", size=14))
-        loading_label.pack(pady=(250, 20))
         
-        self.progress_bar = ctk.CTkProgressBar(self, width=300)
-        self.progress_bar.pack(pady=10)
-        self.progress_bar.configure(mode="indeterminate")
-        self.progress_bar.start()
+        logo_path = get_asset_path(os.path.join("assets", "haier.png"))
+        if os.path.exists(logo_path):
+            self.original_image = Image.open(logo_path).convert("RGBA")
+            self.pulse_label = ctk.CTkLabel(self, text="", fg_color="transparent")
+            self.pulse_label.pack(pady=(230, 10))
+            self.logo_opacity, self.pulse_direction = 1.0, -0.04
+            self.animate_pulse()
+
+        self.progress_bar = ctk.CTkProgressBar(self, width=300, height=4, fg_color="#1E1E1E", progress_color="#005baa")
+        self.progress_bar.pack(pady=(20, 10))
+        self.progress_bar.set(0.0)
+
+        self.loading_label = ctk.CTkLabel(self, text="SZOFTVER INDÍTÁSA...", font=ctk.CTkFont(family="Arial", size=10, weight="bold"), text_color="#FFFFFF")
+        self.loading_label.pack(pady=5)
+        
+        copyright_text = "© 2026 Developed by Zoltan Biro | Tailored for Haier Promoting Team"
+        ctk.CTkLabel(self, text=copyright_text, font=ctk.CTkFont(family="Arial", size=11), text_color="#555555").pack(side="bottom", pady=15)
+        
         self.update()
-        
-        stores, weeks = fetch_stores_and_weeks(self.credentials["email"], self.credentials["password"])
-        self.progress_bar.stop()
-        
-        if stores:
-            self.after(0, lambda: self.build_main_ui(stores, weeks))
-        else:
+        threading.Thread(target=self._preload_worker, daemon=True).start()
+
+    def _preload_update_ui(self, text, value):
+        self.after(0, lambda: self.loading_label.configure(text=text.upper()))
+        self.after(0, lambda: self.progress_bar.set(value))
+
+    def _preload_worker(self):
+        try:
+            stores, weeks = fetch_stores_and_weeks(self.credentials["email"], self.credentials["password"], status_callback=self._preload_update_ui)
+            if hasattr(self, '_pulse_job'): self.after_cancel(self._pulse_job)
+            if stores: self.after(0, lambda: self.build_main_ui(stores, weeks))
+            else: self.after(0, self.build_login_ui)
+        except Exception:
+            if hasattr(self, '_pulse_job'): self.after_cancel(self._pulse_job)
             self.after(0, self.build_login_ui)
+
+    def animate_pulse(self):
+        if not hasattr(self, 'original_image') or not hasattr(self, 'pulse_label'): return
+        self.logo_opacity += self.pulse_direction
+        if self.logo_opacity >= 1.0 or self.logo_opacity <= 0.3: self.pulse_direction *= -1
+        r, g, b, a = self.original_image.split()
+        a = a.point(lambda p: int(p * self.logo_opacity))
+        ctk_img = ctk.CTkImage(light_image=Image.merge("RGBA", (r, g, b, a)), dark_image=Image.merge("RGBA", (r, g, b, a)), size=(300, 93))
+        self.pulse_label.configure(image=ctk_img)
+        self.pulse_label._image = ctk_img
+        self._pulse_job = self.after(40, self.animate_pulse)
 
     def build_main_ui(self, stores, weeks):
         self.clear_ui()
-        
-        # --- 1. LOGO MEGJELENÍTÉSE ---
-        logo_path = "haier.png"
+        logo_path = get_asset_path(os.path.join("assets", "haier.png"))
         if os.path.exists(logo_path):
             raw_img = Image.open(logo_path)
             logo_img = ctk.CTkImage(light_image=raw_img, dark_image=raw_img, size=(300, 93))
-            logo_label = ctk.CTkLabel(self, text="", image=logo_img)
-            logo_label.pack(pady=(20, 5))
+            ctk.CTkLabel(self, text="", image=logo_img).pack(pady=(40, 5))
 
-        ctk.CTkLabel(self, text="SalesNinja Merchandising Riport", font=ctk.CTkFont(family="Arial", size=16, weight="bold")).pack(pady=(0, 15))
+        ctk.CTkLabel(self, text="SalesPortal Merchandising Riport", font=ctk.CTkFont(family="Arial", size=16, weight="bold")).pack(pady=(0, 15))
 
-        # --- 2. INPUT MEZŐK ---
+        # Áruház és Hét választó
         ctk.CTkLabel(self, text="Áruház kiválasztása:", font=ctk.CTkFont(size=12)).pack(pady=2)
-        self.store_combo = ctk.CTkComboBox(self, values=stores, width=400, state="readonly")
+        self.store_combo = ctk.CTkComboBox(self, values=stores, width=400, state="readonly", command=self.on_store_selected)
         self.store_combo.pack(pady=5)
-        
-        env_store = os.getenv("STORE_NAME")
-        if env_store in stores:
-            self.store_combo.set(env_store)
+        if os.getenv("STORE_NAME") in stores: self.store_combo.set(os.getenv("STORE_NAME"))
 
         ctk.CTkLabel(self, text="Riport hete:", font=ctk.CTkFont(size=12)).pack(pady=2)
-        current_iso_week = str(datetime.now().isocalendar()[1])
         self.week_combo = ctk.CTkComboBox(self, values=weeks, width=400, state="readonly")
         self.week_combo.pack(pady=5)
-        if current_iso_week in weeks:
-            self.week_combo.set(current_iso_week)
+        current_iso_week = str(datetime.now().isocalendar()[1])
+        if current_iso_week in weeks: self.week_combo.set(current_iso_week)
 
-        # --- 3. TALLÓZÁS ---
-        self.btn_browse = ctk.CTkButton(
-            self, 
-            text="WAWI-s Excel fájlok kiválasztása", 
-            width=250, 
-            height=35,
-            fg_color="#005baa", 
-            hover_color="#00437d",
-            font=ctk.CTkFont(family="Arial", size=13, weight="bold"),
-            command=self.browse_files
-        )
+        # Tallózás és Státusz
+        self.btn_browse = ctk.CTkButton(self, text="WAWI-s Excel fájlok kiválasztása", width=250, height=35, fg_color="#005baa", hover_color="#00437d", font=ctk.CTkFont(weight="bold"), command=self.browse_files)
         self.btn_browse.pack(pady=15)
-
         self.file_status_label = ctk.CTkLabel(self, text="Nincs fájl kiválasztva.", text_color="#005baa", font=ctk.CTkFont(weight="bold"))
         self.file_status_label.pack(pady=(0, 10))
 
-        # ================
-        # --- ELŐNÉZET ---
-        # ================
-        
-        custom_bg_pair = ["#EAEAEA", "#1A1A1A"] 
-        
-        bg_color = self._apply_appearance_mode(custom_bg_pair)
-        text_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkLabel"]["text_color"])
-        accent_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["fg_color"])
-        selected_text = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["text_color"])
-        header_bg = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
+        # Táblázat Előnézet
+        self.preview_label = ctk.CTkLabel(self, text="Fájl(ok) előnézete (első 5 sor):", font=ctk.CTkFont(family="Arial", size=13, weight="bold"), text_color="gray", anchor="w")
+        self.preview_label.pack(pady=(15, 0), padx=75, fill="x")
 
-        style = ttk.Style()
-        style.theme_use("clam")
-        
-        # Tisztítjuk a layoutot
-        style.layout("Treeview", [('Treeview.treearea', {'sticky': 'nswe'})])
-        style.layout("Treeview.Heading", [
-            ('Treeview.heading.cell', {'sticky': 'nswe', 'children': [
-                ('Treeview.heading.border', {'sticky': 'nswe', 'children': [
-                    ('Treeview.heading.padding', {'sticky': 'nswe', 'children': [
-                        ('Treeview.heading.image', {'side': 'right', 'sticky': ''}),
-                        ('Treeview.heading.text', {'sticky': ''})
-                    ]})
-                ]})
-            ]})
-        ])
-
-        # Táblázat törzs
-        style.configure(
-            "Treeview", 
-            background=bg_color, 
-            foreground=text_color, 
-            fieldbackground=bg_color, 
-            rowheight=25,
-            borderwidth=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        
-        # Fejléc a fehér elválasztó vonallal
-        style.configure(
-            "Treeview.Heading", 
-            background=header_bg, 
-            foreground=text_color, 
-            font=("Arial", 11, "bold"),
-            borderwidth=1,
-            relief="flat",
-            lightcolor="white",
-            darkcolor="white"
-        )
-        
-        style.map("Treeview", background=[('selected', accent_color)], foreground=[('selected', selected_text)])
-
-        # Közvetlenül a 'self'-re tesszük, height=5 kényszeríti a fix méretet
-        self.tree = ttk.Treeview(
-            self, 
-            columns=("Modell", "Raktárhely", "Mennyiség"), 
-            show="headings", 
-            height=5, 
-            style="Treeview"
-        )
-        
-        self.tree.configure(takefocus=False)
-        
-        # Igazítások a korábbi tökéletes verzió szerint
+        # STÍLUS ÉS TÁBLÁZAT MEGHÍVÁSA A STYLES MODULBÓL
+        apply_treeview_style(self)
+        self.tree = ttk.Treeview(self, columns=("Modell", "Raktárhely", "Mennyiség"), show="headings", height=5, style="Treeview")
         self.tree.heading("Modell", text="Modell név", anchor="w")
         self.tree.heading("Raktárhely", text="Kiállított?", anchor="center")
         self.tree.heading("Mennyiség", text="Készlet (db)", anchor="center")
-        
         self.tree.column("Modell", width=350, anchor="w")
         self.tree.column("Raktárhely", width=180, anchor="center")
         self.tree.column("Mennyiség", width=120, anchor="center")
-        
-        # Elhelyezés szép tágas térközzel
-        self.tree.pack(pady=25, padx=50)
-        # --- 5. INDÍTÁS GOMB ---
-        self.btn_run = ctk.CTkButton(
-            self, 
-            text="ROBOT INDÍTÁSA", 
-            width=250, 
-            height=40, 
-            font=ctk.CTkFont(family="Arial", size=14, weight="bold"), 
-            fg_color="green", 
-            hover_color="darkgreen", 
-            command=self.run_bot_logic
-        )
-        self.btn_run.pack(pady=25)
+        self.tree.pack(pady=(5, 25), padx=50)
 
-        # --- 6. KIJELENTKEZÉS GOMB ---
-        btn_logout = ctk.CTkButton(
-            self, 
-            text="Bejelentkezési adatok törlése", 
-            width=180, 
-            height=25, 
-            fg_color="maroon", 
-            hover_color="red", 
-            command=self.logout
-        )
-        btn_logout.pack(side="bottom", pady=15)
-        # =====================================================================
+        # INDÍTÁS GOMB
+        self.btn_run = ctk.CTkButton(self, text="ROBOT INDÍTÁSA", width=250, height=40, font=ctk.CTkFont(size=14, weight="bold"), fg_color="green", hover_color="darkgreen", command=self.run_bot_logic)
+        self.btn_run.pack(pady=25)
+        
+        # COPYRIGHT LÁBLÉC
+        copyright_text = "© 2026 Developed by Zoltan Biro | Tailored for Haier Promoting Team"
+        copyright_label = ctk.CTkLabel(self, text=copyright_text, font=ctk.CTkFont(family="Arial", size=9), text_color="#444444")
+        copyright_label.pack(side="bottom", pady=(10, 15)) # 15 pixel az ablak aljától
+
+        # KIJELENTKEZÉS GOMB
+        btn_logout = ctk.CTkButton(self, text="Kijelentkezés", width=180, height=25, fg_color="maroon", hover_color="red", command=self.logout)
+        btn_logout.pack(side="bottom", pady=10)
+
+    def on_store_selected(self, choice):
+        self.week_combo.configure(state="normal", values=["Frissítés..."])
+        self.week_combo.set("Frissítés...")
+        self.week_combo.configure(state="disabled")
+        self.update_idletasks()
+        threading.Thread(target=self._update_weeks_worker, args=(choice,), daemon=True).start()
+
+    def _update_weeks_worker(self, store_name):
+        def combo_callback(text, value): self.after(0, lambda: self.week_combo.set(text))
+        _, active_weeks = fetch_stores_and_weeks(self.credentials["email"], self.credentials["password"], selected_store=store_name, status_callback=combo_callback)
+        self.after(0, lambda: self._apply_new_weeks(active_weeks))
+
+    def _apply_new_weeks(self, active_weeks):
+        if active_weeks:
+            current_iso_week = str(datetime.now().isocalendar()[1])
+            self.week_combo.configure(state="readonly", values=active_weeks)
+            self.week_combo.set(current_iso_week if current_iso_week in active_weeks else active_weeks[0])
+        else:
+            self.week_combo.configure(state="readonly", values=["Nincs elérhető hét"])
+            self.week_combo.set("Nincs elérhető hét")
 
     def browse_files(self):
-        files = filedialog.askopenfilenames(title="Válaszd ki a WAWI fájlokat", filetypes=[("Excel fájlok", "*.xls *.xlsx")])
+        home_path = os.path.expanduser("~")
+        default_path = os.path.join(home_path, "Downloads")
+        if not os.path.exists(default_path):
+            default_path = os.path.join(home_path, "Letöltések") if os.path.exists(os.path.join(home_path, "Letöltések")) else home_path
+
+        files = filedialog.askopenfilenames(title="Válaszd ki a WAWI fájlokat", initialdir=default_path, filetypes=[("Excel fájlok", "*.xls *.xlsx")])
         if files:
             self.selected_files = list(files)
-            self.file_status_label.configure(text=f"{len(self.selected_files)} db fájl sikeresen betöltve.", text_color="green")
-            
-            # Adatok azonnali feldolgozása az előnézethez
             all_data_list = [get_excel_data(f) for f in self.selected_files if get_excel_data(f) is not None]
             if all_data_list:
-                self.final_dataframe = pd.concat(all_data_list, ignore_index=True)
-                self.final_dataframe = self.final_dataframe.sort_values(by=['modellnev', 'raktar_hely'], ascending=[True, True])
-                self.final_dataframe = self.final_dataframe.drop_duplicates(subset=['modellnev'], keep='first')
-                
-                # Táblázat frissítése a képernyőn
+                self.final_dataframe = pd.concat(all_data_list, ignore_index=True).sort_values(by=['modellnev', 'raktar_hely'], ascending=[True, True]).drop_duplicates(subset=['modellnev'], keep='first')
+                self.file_status_label.configure(text=f"{len(self.selected_files)} db fájl betöltve ({len(self.final_dataframe)} db egyedi modell).", text_color="green")
                 self.update_table_preview()
             else:
                 CTkMessagebox(title="Hiba", message="A kijelölt fájlokból nem lehetett adatot kiolvasni!", icon="cancel")
 
     def update_table_preview(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-            
-        top_5_data = self.final_dataframe.head(5)
-            
-        for _, row in top_5_data.iterrows():
-            model = row.get('modellnev', 'Ismeretlen')
-            qty = row.get('db', row.get('keszlet', 1)) 
-            
-            # Raktárhely fordítása
-            raw_loc = row.get('raktar_hely', '-')
-            loc_str = str(raw_loc).strip()
-            
-            if loc_str == "5":
-                loc = "Igen"
-            elif loc_str == "6":
-                loc = "Nem"
-            else:
-                loc = f"Egyéb ({loc_str})" if loc_str and loc_str != "-" else "-"
-            
-            self.tree.insert("", "end", values=(model, loc, qty))
-            
+        for item in self.tree.get_children(): self.tree.delete(item)
+        for _, row in self.final_dataframe.head(5).iterrows():
+            loc_str = str(row.get('raktar_hely', '-')).strip()
+            loc = "Igen" if loc_str == "5" else ("Nem" if loc_str == "6" else (f"Egyéb ({loc_str})" if loc_str and loc_str != "-" else "-"))
+            self.tree.insert("", "end", values=(row.get('modellnev', 'Ismeretlen'), loc, row.get('db', row.get('keszlet', 1))))
         self.tree.selection_remove(self.tree.selection())
 
     def run_bot_logic(self):
-        if self.final_dataframe is None or self.final_dataframe.empty:
-            CTkMessagebox(title="Figyelem", message="Előbb válassz ki érvényes WAWI fájlokat!", icon="warning")
+        if not self.store_combo.get():
+            CTkMessagebox(title="Hiányzó áruház", message="Kérlek, válassz ki egy áruházat!", icon="warning")
             return
-
-        store = self.store_combo.get()
-        week = self.week_combo.get()
-
+        if self.final_dataframe is None or self.final_dataframe.empty:
+            CTkMessagebox(title="Hiányzó fájl(ok)", message="Kérlek, válassz ki fájlokat!", icon="warning")
+            return
         self.btn_run.configure(state="disabled", text="ROBOT FUT...")
-
-        # Háttérszál indítása
-        bot_thread = threading.Thread(target=self.execute_playwright, args=(store, week, self.final_dataframe))
-        bot_thread.daemon = True
-        bot_thread.start()
+        threading.Thread(target=self.execute_playwright, args=(self.store_combo.get(), self.week_combo.get(), self.final_dataframe), daemon=True).start()
 
     def execute_playwright(self, store, week, final_data):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=False, args=["--start-maximized"])
-            context = browser.new_context(no_viewport=True)
-            page = context.new_page()
-            
-            page.on("dialog", lambda dialog: print(f"\n[ALERT]: {dialog.message}\nNyomj OK-t!"))
-
+            page = browser.new_context(no_viewport=True).new_page()
             try:
                 page.goto("https://salesportal.salesninja.hu/login")
                 page.fill("input[name='email']", self.credentials["email"])
                 page.fill("input[name='password']", self.credentials["password"])
                 page.click("button[type='submit']")
                 page.wait_for_load_state("domcontentloaded")
-
-                # Riport futtatása
                 merch_report(page, store, week, final_data)
-
-                print("\n" + "="*50)
-                print("AUTOMATIZÁCIÓ KÉSZ. VEDD ÁT AZ IRÁNYÍTÁST!")
-                print("="*50)
-
                 page.wait_for_event("close", timeout=0)
-            except Exception as e:
-                print(f"Hiba futás közben: {e}")
-            finally:
-                browser.close()
-        
+            except Exception as e: print(f"Hiba: {e}")
+            finally: browser.close()
         self.after(0, lambda: self.btn_run.configure(state="normal", text="ROBOT INDÍTÁSA"))
 
     def logout(self):
-        if os.path.exists(CONFIG_FILE): os.remove(CONFIG_FILE)
-        if os.path.exists(KEY_FILE): os.remove(KEY_FILE)
+        if os.path.exists(auth.CONFIG_FILE): os.remove(auth.CONFIG_FILE)
+        if os.path.exists(auth.KEY_FILE): os.remove(auth.KEY_FILE)
         self.credentials = None
         self.build_login_ui()
 
     def clear_ui(self):
-        for widget in self.winfo_children():
-            widget.pack_forget()
+        for widget in self.winfo_children(): widget.pack_forget()
 
 if __name__ == "__main__":
-    app = SalesBotGUI()
-    app.mainloop()
+    SalesBotGUI().mainloop()
