@@ -1,3 +1,4 @@
+import PIL._tkinter_finder
 import os
 import threading
 import pandas as pd
@@ -18,7 +19,7 @@ class SalesBotGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("SalesPortal Merch Bot v2.0")
-        self.geometry("800x850")
+        self.geometry("800x900")
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", lambda: os._exit(0))
         
@@ -184,11 +185,11 @@ class SalesBotGUI(ctk.CTk):
         self.tree.column("Modell", width=350, anchor="w")
         self.tree.column("Raktárhely", width=180, anchor="center")
         self.tree.column("Mennyiség", width=120, anchor="center")
-        self.tree.pack(pady=(5, 25), padx=50)
+        self.tree.pack(pady=(5, 15), padx=50)
 
         # INDÍTÁS GOMB
         self.btn_run = ctk.CTkButton(self, text="ROBOT INDÍTÁSA", width=250, height=40, font=ctk.CTkFont(size=14, weight="bold"), fg_color="green", hover_color="darkgreen", command=self.run_bot_logic)
-        self.btn_run.pack(pady=25)
+        self.btn_run.pack(pady=15)
         
         # COPYRIGHT LÁBLÉC
         copyright_text = "© 2026 Developed by Zoltan Biro | Tailored for Haier Promoting Team"
