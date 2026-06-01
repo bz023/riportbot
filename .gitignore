@@ -5,3 +5,6 @@ __pycache__/
 config.enc
 secret.key
 data/
+Haier_RiportBot.spec
+build/
+dist/
